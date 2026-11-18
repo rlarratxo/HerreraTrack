@@ -22,17 +22,15 @@ if "Valoración" not in df.columns:
     df["Valoración"] = 0
 df["Valoración"] = pd.to_numeric(df["Valoración"], errors="coerce").fillna(0)
 
-# Procesar la "Marca Temporal" (formato: 28/08/2026 11:44:32) para extraer la Fecha de forma limpia
+# Procesar la "Marca Temporal" (formato: 28/08/2026 11:44:32) para extraer la Fecha
 if "Marca Temporal" in df.columns:
-    # Convertir a datetime indicando el formato día/mes/año hora:minuto:segundo
     df["_dt"] = pd.to_datetime(df["Marca Temporal"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
-    # Crear una columna de fecha limpia (YYYY-MM-DD o DD/MM/YYYY) para los filtros
     df["Fecha_Filtro"] = df["_dt"].dt.strftime("%d/%m/%Y").fillna(df["Marca Temporal"].astype(str))
 else:
     df["Fecha_Filtro"] = "Sin fecha"
 
-# Lista de estados permitidos
-ESTADOS = ["Activo", "Realización", "Inactivo", "Cancelado"]
+# Lista de estados permitidos (añadido "Valoración")
+ESTADOS = ["Activo", "Valoración", "Realización", "Inactivo", "Cancelado"]
 
 st.title("🚚 Control de Recogidas y Vaciados")
 
@@ -51,14 +49,18 @@ with tab_admin:
     
     df_view = df if fecha_sel == "Todas" else df[df["Fecha_Filtro"] == fecha_sel]
 
-    # KPIs superiores
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
-    col1.metric("Total Trabajos", len(df_view))
-    col2.metric("🟡 Activos", len(df_view[df_view["Estatus"] == "Activo"]))
-    col3.metric("🔵 Realización", len(df_view[df_view["Estatus"] == "Realización"]))
-    col4.metric("⚪ Inactivos", len(df_view[df_view["Estatus"] == "Inactivo"]))
-    col5.metric("🔴 Cancelados", len(df_view[df_view["Estatus"] == "Cancelado"]))
-    col6.metric("💶 Valoración", f"{df_view['Valoración'].sum():,.2f} €")
+    # KPIs superiores - Fila 1 (Recuento de estados)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total Trabajos", len(df_view))
+    c2.metric("🟡 Activos", len(df_view[df_view["Estatus"] == "Activo"]))
+    c3.metric("🔍 Valoración", len(df_view[df_view["Estatus"] == "Valoración"]))
+    c4.metric("🔵 Realización", len(df_view[df_view["Estatus"] == "Realización"]))
+
+    # KPIs superiores - Fila 2 (Inactivos, Cancelados y Suma de Importe)
+    c5, c6, c7 = st.columns(3)
+    c5.metric("⚪ Inactivos", len(df_view[df_view["Estatus"] == "Inactivo"]))
+    c6.metric("🔴 Cancelados", len(df_view[df_view["Estatus"] == "Cancelado"]))
+    c7.metric("💶 Importe Total (€)", f"{df_view['Valoración'].sum():,.2f} €")
 
     st.divider()
 
@@ -74,7 +76,6 @@ with tab_admin:
 
     with col_table:
         st.markdown("**Detalle de Operaciones**")
-        # Columnas a mostrar (excluyendo las auxiliares internas)
         columnas_deseadas = ["Marca Temporal", "Nombre", "CP", "Servicio", "Estatus", "Valoración", "Notas"]
         columnas_mostrar = [c for c in columnas_deseadas if c in df_view.columns]
         
@@ -90,11 +91,11 @@ with tab_admin:
 with tab_workers:
     st.subheader("Actualizar Estatus y Valoración")
     
-    # Filtro para operarios por defecto viendo Activos y en Realización
+    # Filtro para operarios por defecto viendo Activos y en Valoración/Realización
     filtro_estatus = st.multiselect(
         "Filtrar por estatus:",
         options=ESTADOS,
-        default=["Activo", "Realización"]
+        default=["Activo", "Valoración", "Realización"]
     )
     
     trabajos = df[df["Estatus"].isin(filtro_estatus)]
@@ -134,7 +135,6 @@ with tab_workers:
                 if c3.button("Guardar", key=f"btn_{idx}", type="primary"):
                     df.at[idx, "Estatus"] = nuevo_estatus
                     df.at[idx, "Valoración"] = nueva_val
-                    # Limpiamos columnas auxiliares antes de escribir en Google Sheets para no alterar el formato original
                     df_to_save = df.drop(columns=["_dt", "Fecha_Filtro"], errors="ignore")
                     conn.update(worksheet="Hoja 1", data=df_to_save)
                     st.success("¡Actualizado en Google Sheets!")
