@@ -10,11 +10,26 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 # Cargar datos (ttl=0 para actualizaciones en tiempo real)
 df = conn.read(worksheet="Hoja 1", ttl=0)
 
-# Asegurar valores por defecto
+# Limpiar nombres de columnas por si tienen espacios extra
+df.columns = df.columns.str.strip()
+
+# Asegurar valores por defecto para Estatus y Valoración
 if "Estatus" not in df.columns:
     df["Estatus"] = "Activo"
 df["Estatus"] = df["Estatus"].fillna("Activo")
-df["Valoracion"] = pd.to_numeric(df["Valoracion"], errors="coerce").fillna(0)
+
+if "Valoración" not in df.columns:
+    df["Valoración"] = 0
+df["Valoración"] = pd.to_numeric(df["Valoración"], errors="coerce").fillna(0)
+
+# Procesar la "Marca Temporal" (formato: 28/08/2026 11:44:32) para extraer la Fecha de forma limpia
+if "Marca Temporal" in df.columns:
+    # Convertir a datetime indicando el formato día/mes/año hora:minuto:segundo
+    df["_dt"] = pd.to_datetime(df["Marca Temporal"], format="%d/%m/%Y %H:%M:%S", errors="coerce")
+    # Crear una columna de fecha limpia (YYYY-MM-DD o DD/MM/YYYY) para los filtros
+    df["Fecha_Filtro"] = df["_dt"].dt.strftime("%d/%m/%Y").fillna(df["Marca Temporal"].astype(str))
+else:
+    df["Fecha_Filtro"] = "Sin fecha"
 
 # Lista de estados permitidos
 ESTADOS = ["Activo", "Realización", "Inactivo", "Cancelado"]
@@ -30,20 +45,20 @@ tab_admin, tab_workers = st.tabs(["🦅 Vista Dirección (Eagle View)", "👷 Pa
 with tab_admin:
     st.subheader("Resumen Diario por Estatus")
     
-    # Filtro por Fecha
-    fechas_disponibles = sorted(df["Fecha"].dropna().unique().tolist(), reverse=True)
-    fecha_sel = st.selectbox("Seleccionar Fecha:", ["Todas"] + fechas_disponibles)
+    # Filtro por Fecha basada en la Marca Temporal
+    fechas_disponibles = sorted(df["Fecha_Filtro"].dropna().unique().tolist(), reverse=True)
+    fecha_sel = st.selectbox("Seleccionar Fecha (Marca Temporal):", ["Todas"] + fechas_disponibles)
     
-    df_view = df if fecha_sel == "Todas" else df[df["Fecha"] == fecha_sel]
+    df_view = df if fecha_sel == "Todas" else df[df["Fecha_Filtro"] == fecha_sel]
 
-    # KPIs superiores (6 columnas para incluir todos los estados)
+    # KPIs superiores
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     col1.metric("Total Trabajos", len(df_view))
     col2.metric("🟡 Activos", len(df_view[df_view["Estatus"] == "Activo"]))
     col3.metric("🔵 Realización", len(df_view[df_view["Estatus"] == "Realización"]))
     col4.metric("⚪ Inactivos", len(df_view[df_view["Estatus"] == "Inactivo"]))
     col5.metric("🔴 Cancelados", len(df_view[df_view["Estatus"] == "Cancelado"]))
-    col6.metric("💶 Valoración", f"{df_view['Valoracion'].sum():,.2f} €")
+    col6.metric("💶 Valoración", f"{df_view['Valoración'].sum():,.2f} €")
 
     st.divider()
 
@@ -51,13 +66,20 @@ with tab_admin:
     col_chart, col_table = st.columns([1, 2])
     with col_chart:
         st.markdown("**Trabajos por Servicio y Estatus**")
-        resumen = pd.crosstab(df_view["Servicio"], df_view["Estatus"])
-        st.dataframe(resumen, use_container_width=True)
+        if "Servicio" in df_view.columns:
+            resumen = pd.crosstab(df_view["Servicio"], df_view["Estatus"])
+            st.dataframe(resumen, use_container_width=True)
+        else:
+            st.warning("Falta la columna 'Servicio' en el Google Sheet.")
 
     with col_table:
         st.markdown("**Detalle de Operaciones**")
+        # Columnas a mostrar (excluyendo las auxiliares internas)
+        columnas_deseadas = ["Marca Temporal", "Nombre", "CP", "Servicio", "Estatus", "Valoración", "Notas"]
+        columnas_mostrar = [c for c in columnas_deseadas if c in df_view.columns]
+        
         st.dataframe(
-            df_view[["Fecha", "Cliente", "CP", "Servicio", "Estatus", "Valoracion", "Notas"]],
+            df_view[columnas_mostrar],
             use_container_width=True,
             hide_index=True
         )
@@ -77,33 +99,43 @@ with tab_workers:
     
     trabajos = df[df["Estatus"].isin(filtro_estatus)]
 
-    for idx, row in trabajos.iterrows():
-        with st.expander(f"[{row['Estatus'].upper()}] {row['Cliente']} — CP: {row['CP']} ({row['Servicio']})"):
-            st.write(f"**📍 Dirección:** {row['Direccion']} (CP: {row['CP']})")
-            st.write(f"**📞 Teléfono:** {row['Telefono']}")
-            st.write(f"**🪑 Muebles / Notas:** {row['Notas']}")
+    if trabajos.empty:
+        st.info("No hay trabajos con los estatus seleccionados.")
+    else:
+        for idx, row in trabajos.iterrows():
+            nombre_cliente = row.get("Nombre", "Sin nombre")
+            cp_val = row.get("CP", "")
+            servicio_val = row.get("Servicio", "")
+            timestamp = row.get("Marca Temporal", "")
             
-            c1, c2, c3 = st.columns([2, 2, 1])
-            
-            # Obtener índice seguro para el selectbox
-            current_status = row["Estatus"]
-            status_idx = ESTADOS.index(current_status) if current_status in ESTADOS else 0
-            
-            nuevo_estatus = c1.selectbox(
-                "Cambiar Estatus",
-                ESTADOS,
-                index=status_idx,
-                key=f"status_{idx}"
-            )
-            nueva_val = c2.number_input(
-                "Valoración (€)",
-                value=float(row["Valoracion"]),
-                step=10.0,
-                key=f"val_{idx}"
-            )
-            if c3.button("Guardar", key=f"btn_{idx}", type="primary"):
-                df.at[idx, "Estatus"] = nuevo_estatus
-                df.at[idx, "Valoracion"] = nueva_val
-                conn.update(worksheet="Hoja 1", data=df)
-                st.success("¡Actualizado en Google Sheets!")
-                st.rerun()
+            with st.expander(f"[{row['Estatus'].upper()}] {nombre_cliente} — CP: {cp_val} ({servicio_val}) | 🕒 {timestamp}"):
+                st.write(f"**📍 Dirección:** {row.get('Direccion', '')} (CP: {cp_val})")
+                st.write(f"**📞 Teléfono:** {row.get('Teléfono', '')}")
+                st.write(f"**🪑 Muebles / Notas:** {row.get('Notas', '')}")
+                
+                c1, c2, c3 = st.columns([2, 2, 1])
+                
+                # Obtener índice seguro para el selectbox
+                current_status = row["Estatus"]
+                status_idx = ESTADOS.index(current_status) if current_status in ESTADOS else 0
+                
+                nuevo_estatus = c1.selectbox(
+                    "Cambiar Estatus",
+                    ESTADOS,
+                    index=status_idx,
+                    key=f"status_{idx}"
+                )
+                nueva_val = c2.number_input(
+                    "Valoración (€)",
+                    value=float(row["Valoración"]),
+                    step=10.0,
+                    key=f"val_{idx}"
+                )
+                if c3.button("Guardar", key=f"btn_{idx}", type="primary"):
+                    df.at[idx, "Estatus"] = nuevo_estatus
+                    df.at[idx, "Valoración"] = nueva_val
+                    # Limpiamos columnas auxiliares antes de escribir en Google Sheets para no alterar el formato original
+                    df_to_save = df.drop(columns=["_dt", "Fecha_Filtro"], errors="ignore")
+                    conn.update(worksheet="Hoja 1", data=df_to_save)
+                    st.success("¡Actualizado en Google Sheets!")
+                    st.rerun()
