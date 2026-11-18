@@ -16,6 +16,9 @@ if "Estatus" not in df.columns:
 df["Estatus"] = df["Estatus"].fillna("Activo")
 df["Valoracion"] = pd.to_numeric(df["Valoracion"], errors="coerce").fillna(0)
 
+# Lista de estados permitidos
+ESTADOS = ["Activo", "Realización", "Inactivo", "Cancelado"]
+
 st.title("🚚 Control de Recogidas y Vaciados")
 
 # Pestañas de navegación
@@ -33,13 +36,14 @@ with tab_admin:
     
     df_view = df if fecha_sel == "Todas" else df[df["Fecha"] == fecha_sel]
 
-    # KPIs superiores
-    col1, col2, col3, col4, col5 = st.columns(5)
+    # KPIs superiores (6 columnas para incluir todos los estados)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     col1.metric("Total Trabajos", len(df_view))
     col2.metric("🟡 Activos", len(df_view[df_view["Estatus"] == "Activo"]))
-    col3.metric("🔵 En Realización", len(df_view[df_view["Estatus"] == "Realización"]))
-    col4.metric("🟢 Completados", len(df_view[df_view["Estatus"] == "Completado"]))
-    col5.metric("💶 Valoración Total", f"{df_view['Valoracion'].sum():,.2f} €")
+    col3.metric("🔵 Realización", len(df_view[df_view["Estatus"] == "Realización"]))
+    col4.metric("⚪ Inactivos", len(df_view[df_view["Estatus"] == "Inactivo"]))
+    col5.metric("🔴 Cancelados", len(df_view[df_view["Estatus"] == "Cancelado"]))
+    col6.metric("💶 Valoración", f"{df_view['Valoracion'].sum():,.2f} €")
 
     st.divider()
 
@@ -64,10 +68,10 @@ with tab_admin:
 with tab_workers:
     st.subheader("Actualizar Estatus y Valoración")
     
-    # Filtro para operarios
+    # Filtro para operarios por defecto viendo Activos y en Realización
     filtro_estatus = st.multiselect(
         "Filtrar por estatus:",
-        options=["Activo", "Realización", "Completado"],
+        options=ESTADOS,
         default=["Activo", "Realización"]
     )
     
@@ -80,10 +84,15 @@ with tab_workers:
             st.write(f"**🪑 Muebles / Notas:** {row['Notas']}")
             
             c1, c2, c3 = st.columns([2, 2, 1])
+            
+            # Obtener índice seguro para el selectbox
+            current_status = row["Estatus"]
+            status_idx = ESTADOS.index(current_status) if current_status in ESTADOS else 0
+            
             nuevo_estatus = c1.selectbox(
                 "Cambiar Estatus",
-                ["Activo", "Realización", "Completado"],
-                index=["Activo", "Realización", "Completado"].index(row["Estatus"]) if row["Estatus"] in ["Activo", "Realización", "Completado"] else 0,
+                ESTADOS,
+                index=status_idx,
                 key=f"status_{idx}"
             )
             nueva_val = c2.number_input(
