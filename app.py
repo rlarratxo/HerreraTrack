@@ -93,10 +93,10 @@ with tab_workers:
                 st.write(f"**🪑 Muebles / Notas:** {row.get('Notas', '')}")
 
                 c1, c2 = st.columns([2, 2])
-                current_status = row["Estatus"]
+                current_status = row["Estado"]
                 status_idx = ESTADOS.index(current_status) if current_status in ESTADOS else 0
 
-                nuevo_estatus = c1.selectbox("Cambiar Estatus", ESTADOS, index=status_idx, key=f"status_{idx}")
+                nuevo_estatus = c1.selectbox("Cambiar Estado", ESTADOS, index=status_idx, key=f"estado_{idx}")
                 nueva_val = c2.number_input("Valoración (€)", value=float(row["Valoración"]), step=10.0, key=f"val_{idx}")
 
                 nuevas_notas_op = st.text_area(
