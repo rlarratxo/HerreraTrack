@@ -39,17 +39,17 @@ else:
 
 ESTADOS = ["Activo", "Valoración", "Realización", "Inactivo", "Cancelado"]
 
-st.title("🚚 Control de Recogidas y Vaciados")
+st.title("🚚 Control de Recogidas y Vaciados creado por Idoia Lertxundi")
 
 # Botón de refresco manual
 if st.button("🔄 Actualizar datos ahora"):
     st.cache_data.clear()
     st.rerun()
 
-tab_admin, tab_workers = st.tabs(["🦅 Vista Dirección (Eagle View)", "👷 Panel Operarios"])
+tab_admin, tab_workers = st.tabs(["🦅 Vista Dirección (Vista águila)", "👷 Panel Operarios"])
 
 # ==========================================
-# PESTAÑA 1: VISTA DIRECCIÓN (EAGLE VIEW)
+# PESTAÑA 1: VISTA DIRECCIÓN
 # ==========================================
 with tab_admin:
     st.subheader("Resumen Diario por Estatus")
